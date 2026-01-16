@@ -89,10 +89,6 @@ int main(int argc, char *argv[]) {
 
     int file_start = 1;
 
-    /*
-     * Parse command-line options.
-     * Options must appear before file names.
-     */
     for (int i = 1; i < argc && argv[i][0] == '-'; i++) {
         if (strcmp(argv[i], "-l") == 0) {
             show_lines = true;
