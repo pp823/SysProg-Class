@@ -28,13 +28,21 @@ void usage(char *exename) {
  * 
  * Returns: length of string (not including null terminator)
  * 
+ 
  * TODO: IMPLEMENT THIS FUNCTION
  * You must use pointer arithmetic, no array notation
  * Do NOT use strlen() from standard library
  */
 int str_len(char *str) {
     // TODO: Implement string length calculation
-    return 0;  // placeholder
+     int len = 0;
+
+    while (*str != '\0') {
+        len++;
+        str++;
+    }
+
+    return len;  // placeholder
 }
 
 /**
@@ -54,6 +62,41 @@ int str_match(char *line, char *pattern, int case_insensitive) {
     // TODO: Implement pattern matching
     // Remember: pattern can appear anywhere in the line
     // For case-insensitive, compare characters after converting to same case
+    char *lptr;
+    char *pptr;
+
+    if (*pattern == '\0') {
+        return 1;
+    }
+
+    while (*line != '\0') {
+        lptr = line;
+        pptr = pattern;
+
+        while (*lptr != '\0' && *pptr != '\0') {
+            char lc = *lptr;
+            char pc = *pptr;
+
+            if (case_insensitive) {
+                lc = tolower(lc);
+                pc = tolower(pc);
+            }
+
+            if (lc != pc) {
+                break;
+            }
+
+            lptr++;
+            pptr++;
+        }
+
+        if (*pptr == '\0') {
+            return 1;
+        }
+
+        line++;
+    }
+
     return 0;  // placeholder
 }
 
@@ -160,6 +203,55 @@ int main(int argc, char *argv[]) {
     // Exit with appropriate code
     // 0 = success (found matches)
     // 1 = pattern not found
+
+    line_buffer = malloc(LINE_BUFFER_SZ);
+    if (line_buffer == NULL) {
+        printf("Error: Memory allocation failed\n");
+        exit(4);
+    }
+
+    fp = fopen(filename, "r");
+    if (fp == NULL) {
+        printf("Error: Cannot open file %s\n", filename);
+        free(line_buffer);
+        exit(3);
+    }
+
+    while (fgets(line_buffer, LINE_BUFFER_SZ, fp) != NULL) {
+        line_number++;
+
+        found_match = str_match(line_buffer, pattern, case_insensitive);
+
+        if (invert_match) {
+            found_match = !found_match;
+        }
+
+        if (found_match) {
+            match_count++;
+
+            if (!count_only) {
+                if (show_line_nums) {
+                    printf("%d: %s", line_number, line_buffer);
+                } else {
+                    printf("%s", line_buffer);
+                }
+            }
+        }
+    }
+
+    fclose(fp);
+
+    if (count_only) {
+        if (match_count > 0) {
+            printf("Matches found: %d\n", match_count);
+        } else {
+            printf("No matches found\n");
+        }
+    }
+
+    free(line_buffer);
+
+
     if (match_count > 0) {
         exit(0);
     } else {
