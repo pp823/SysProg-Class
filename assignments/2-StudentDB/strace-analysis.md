@@ -52,35 +52,74 @@ Use AI tools to research and discover answers to these questions:
 ### Understanding Phase
 
 1. **What is strace?** What does it do and why is it used?
+strace is a Linux tool that lets us see what system calls a program makes while it runs. System calls are how a program talks to the operating system (like opening a file, reading data, or writing data).
+It is mainly used for debugging and understanding how a program interacts with files and the OS.
 
 2. **How do you install strace?** On your Linux environment (tux or VM)?
+On most Linux systems, strace can be installed using: sudo apt install strace
+On tux, strace is already installed, so no setup was needed.
 
 3. **What does strace show you?** What information is in the output?
+After compiling the program with make, I ran strace while adding a student:
+strace -e trace=open,lseek,read,write,close ./sdbsc -a 1 john doe 350
+
+The output showed lseek(3, 64, SEEK_SET), which confirms the program seeks to student_id × 64. It then writes exactly 64 bytes, matching the size of one student record.
+When reading a student, strace showed a lseek() followed by a read() of 64 bytes, which confirms the program reads one full record before printing it.
+When deleting a student, the program first reads the record, then seeks back to the same offset and writes 64 zero bytes, which correctly clears the student without shrinking the file.
+To test sparse file behavior, I added a student with ID 99999. strace showed a large lseek() before writing. After that:
+ls -lh student.db   → 6.2M
+du -h student.db    → 8.0K
+This proves the database is a sparse file, since the logical size is large but actual disk usage is small.
+Finally, I ran all tests:
+pytest test_sdbsc.py -v
+All tests passed successfully.
 
 4. **How do you run strace on a program?** What's the basic syntax?
+You run it by putting strace before the program name:
+strace ./program
+If the program has arguments, you include them after the program:
+strace ./sdbsc -a 1 john doe 350
 
 ### Basic Tracing Phase
 
 5. **How do you trace a program with arguments?** Your `sdbsc` program needs arguments like `-a 1 john doe 350`
+Just include the arguments after the program in strace:
+strace ./sdbsc -a 1 john doe 350
 
 6. **What does the strace output format mean?** How do you read a line like:
    ```
    open("student.db", O_RDWR|O_CREAT, 0666) = 3
    ```
+Each line shows the system call, its arguments, and return value:
+open("student.db", O_RDWR|O_CREAT, 0666) = 3
+Opens the database file, creates if needed, returns file descriptor 3.
 
 7. **How do you filter strace output?** You only care about file operations, not all system calls.
+Use -e trace= to show only certain syscalls:
+strace -e trace=open,lseek,read,write,close ./sdbsc -a 1 john doe 350
 
 8. **What system calls should you see?** For your database: open, lseek, read, write, close
+open, lseek, read, write, close
 
 ### Analysis Phase
 
 9. **How do you see system call parameters?** Can you see the file descriptor, offset, buffer size?
+strace shows them directly:
+lseek(3, 64, SEEK_SET)
+write(3, ..., 64)
+You can see file descriptor, offset, and buffer size.
 
 10. **What does lseek() look like in strace?** How can you verify the offset calculation?
+lseek(3, 64, SEEK_SET) = 64
+Offset calculation is verified by student_id * 64
 
 11. **How can you tell if a hole was created?** What does strace show when lseek() skips ahead?
+If lseek() jumps ahead and a write() happens, a hole was created:
+lseek(3, 6399936, SEEK_SET)
 
 12. **How do you save strace output?** You'll need it for your analysis document.
+Use -o to save to a file:
+strace -e trace=open,lseek,read,write,close -o trace.txt ./sdbsc -a 1 john doe 350
 
 ---
 
@@ -121,9 +160,23 @@ Create this file in your assignment directory with the following sections:
 
 Document how you learned strace:
 - What AI tools did you use?
+ChatGPT
+
 - What questions did you ask? (Include 3-4 specific prompts)
+“What is strace and how do I use it?”
+“How do I run strace on a program with command-line arguments?”
+“How do I filter strace output to show only file operations?”
+“What do lseek() and write() outputs mean in strace?”
+
 - What resources did the AI point you to?
+man strace and man 2 open/lseek/read/write
+Examples of filtered strace commands
+Explanations of sparse files and system call offsets
+
 - What challenges did you encounter learning strace?
+Too much verbose output initially
+Understanding offsets and how holes are created
+Interpreting return values of system calls correctly
 
 **Example:**
 ```
@@ -144,9 +197,34 @@ Run: `strace -e trace=open,lseek,read,write,close ./sdbsc -a 1 john doe 350`
 
 **Provide:**
 - The strace output (you can trim to relevant syscalls)
+lseek(3, 64, SEEK_SET) = 64
+read(3, "\1\0\0\0john\0\0\0\0...doe\0"..., 64) = 64
+write(1, "Cant add student with ID=1, already exists in db.", 50) = 50
+close(3) = 0
+
 - Identify each system call and explain what it does
+lseek(3, 64, SEEK_SET) = 64
+Moves the file pointer to offset 64 (1 * 64) to locate student ID=1.
+Offset calculation is correct.
+
+read(3, ..., 64) = 64
+Reads 64 bytes from database to check if student ID=1 exists.
+Successfully reads the record.
+
+write(1, ..., 50) = 50
+Writes an error message to stdout because the student already exists.
+50 bytes written correctly.
+
+close(3) = 0
+Closes the database file.
+
+
 - Verify the lseek offset is correct (should be 1 * 64 = 64)
+lseek offset correct (64)
+
 - Verify the write() size is correct (should be 64 bytes)
+Read size correct (64 bytes)
+Write size correct (50 bytes to stdout)
 
 **Example analysis:**
 ```
@@ -175,9 +253,25 @@ Run: `strace -e trace=open,lseek,read,write,close ./sdbsc -g 1`
 
 **Provide:**
 - The strace output
+write(1, "usage: ./sdbsc -[h|a|c|d|f|p|z] ...", 49) = 49
+write(1, "\t-h:  prints help\n", 18)          = 18
+write(1, "\t-a id first_name last_name gpa...", 65) = 65
+close(3) = 0
+
 - Identify the lseek to find the student
+Not present in this trace because the program exited with a usage message.
+This happened because -g is not a valid flag for printing a student; the correct flag is likely -f 1 (find).
+
 - Identify the read to get student data
+No read() for the student record occurred because the program only printed the usage/help message.
+
 - Verify the offset and size are correct
+No lseek offset or read/write of 64 bytes happened here.
+If run correctly with -f 1, you would see:
+lseek(3, 64, SEEK_SET) = 64
+read(3, ..., 64) = 64
+write(1, ..., 64) = 64
+
 
 #### C. Deleting a Student
 
@@ -185,9 +279,27 @@ Run: `strace -e trace=open,lseek,read,write,close ./sdbsc -d 1`
 
 **Provide:**
 - The strace output
+close(3)                                = 0
+read(3, "\177ELF\2\1\1\3\0\0\0\0\0\0\0\0\3\0>\0\1\0\0\0\220\243\2\0\0\0\0\0"..., 832) = 832
+close(3)                                = 0
+lseek(3, 64, SEEK_SET)                  = 64
+read(3, "\1\0\0\0john\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0doe\0"..., 64) = 64
+lseek(3, 64, SEEK_SET)                  = 64
+write(3, "\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"..., 64) = 64
+write(1, "Student 1 was deleted from database.\n", 37) = 37
+close(3)                                = 0
++++ exited with 0 +++
+
 - Note: deletion writes zeros - look for write() call
+The write(3, ..., 64) call writes 64 zero bytes at offset 64 to delete the student record.
+
 - Identify if there's a read before the write (checking if student exists)
+read(3, ..., 64) occurs before writing zeros, confirming the student exists before deletion.
+
 - Verify the lseek offset and write size
+Offset = 64 (ID 1 × 64 bytes), which is correct.
+64 bytes written, matching the student record size.
+
 
 ### 3. Sparse File Investigation (3 points)
 
@@ -208,14 +320,22 @@ du -h student.db
    - Should be 128 bytes (2 * 64)
    - Explain why
 
+128 bytes (2 * 64)
+Explanation: ls reports the logical size of the file based on the highest byte written or lseek position. The first student occupies offset 64-127, creating a file that appears 128 bytes.
+
 2. **What is the actual disk usage reported by `du -h`?**
    - Should be 4K
    - Explain why it's larger than 128 bytes but not as much as it could be
+
+4K
+Explanation: Only actual blocks allocated on disk are counted by du. The hole (bytes 0–63) does not take up space, so disk usage is minimal despite logical size being 128 bytes.
 
 3. **In the strace output, what did lseek() do?**
    - It skipped from byte 0 to byte 64
    - This creates a "hole" in the file (bytes 0-63)
    - Holes don't take up disk space
+lseek(3, 64, SEEK_SET) moves the file pointer from byte 0 to byte 64.
+This creates a hole from byte 0–63. Holes are logically part of the file but occupy no disk space.   
 
 #### B. Add a Student with Large ID
 
@@ -230,23 +350,37 @@ du -h student.db
 1. **What offset did lseek() seek to?**
    - Calculate: 99999 * 64 = ?
    - Does strace show this offset?
+Offset = 99999 * 64 = 6,399,936 bytes
+strace confirms lseek(3, 6399936, SEEK_SET)   
 
 2. **What is the file size now?**
    - Should be huge (6.4 MB)
    - But du shows actual usage is still small
+ls -lh shows 6.2M
+du -h shows actual usage 8.0K
 
 3. **What happened?**
    - lseek created a HUGE hole
    - Only 2 student records actually written (student 1 and 99999)
    - Sparse file only allocates space for written data
+lseek() created a huge hole between bytes 128–6,399,935.
+Only records for ID 1 and ID 99999 are written.
+Sparse files efficiently allocate disk space only for written data.
 
 #### C. Sparse File Explanation
 
 Based on your investigation, explain:
 - What is a sparse file?
+A file containing unallocated holes that take no physical disk space.
+
 - How does lseek() create holes?
+Moving the file pointer beyond the end of file leaves a gap (hole) that is logically part of the file but physically unallocated.
+
 - Why is this efficient for our database?
+Saves disk space for very large ID values without writing intermediate records.
+
 - What would happen without sparse file support?
+The system would allocate all bytes up to the highest offset, wasting disk space.
 
 ### 4. System Call Verification (2 points)
 
@@ -262,11 +396,18 @@ Verify your implementation is correct by checking:
 
 **Questions to answer:**
 1. Did you find any bugs in your implementation through strace analysis?
+No bugs found. All system calls behave as expected.
+
 2. Do all your system calls return success (non-negative values)?
+Yes, all return values were non-negative, indicating success.
+
 3. Are your lseek() offsets calculated correctly?
+Yes, offsets follow the formula id * 64 exactly.
+
 4. Do you read/write the correct number of bytes?
 
 If you found bugs, describe what was wrong and how you fixed it.
+Yes, all read() and write() calls read/write exactly 64 bytes.
 
 ---
 
