@@ -472,7 +472,6 @@ Built_In_Cmds exec_built_in_cmd(cmd_buff_t *cmd)
  *       }
  *   }
  *   
- *   return OK;
  * 
  * @return: OK on success
  */
