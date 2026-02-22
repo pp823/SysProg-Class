@@ -1,6 +1,5 @@
 #ifndef __DSHLIB_H__
-    #define __DSHLIB_H__
-
+#define __DSHLIB_H__
 
 //Constants for command structure sizes
 #define EXE_MAX 64
@@ -8,7 +7,7 @@
 #define CMD_MAX 8
 #define CMD_ARGV_MAX (CMD_MAX + 1)
 // Longest command that can be read from the shell
-#define SH_CMD_MAX EXE_MAX + ARG_MAX
+#define SH_CMD_MAX (EXE_MAX + ARG_MAX)
 
 typedef struct cmd_buff
 {
@@ -75,5 +74,9 @@ int exec_cmd(cmd_buff_t *cmd);
 #define CMD_OK_HEADER       "PARSED COMMAND LINE - TOTAL COMMANDS %d\n"
 #define CMD_WARN_NO_CMD     "warning: no commands provided\n"
 #define CMD_ERR_PIPE_LIMIT  "error: piping limited to %d commands\n"
+#define CMD_ERR_EXECUTE     "error executing command\n"
+
+//dragon function prototype
+void print_dragon();
 
 #endif
