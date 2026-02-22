@@ -1,6 +1,5 @@
 #include <stdio.h>
 
-// EXTRA CREDIT - print the drexel dragon
 void print_dragon(){
     printf("    _________________\n");
     printf("   /                 \\\n");
