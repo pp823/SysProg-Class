@@ -12,7 +12,7 @@
 /*
  * Implement your exec_local_cmd_loop function by building a loop that prompts the 
  * user for input.  Use the SH_PROMPT constant from dshlib.h and then
- * use fgets to accept user input.
+ * use fgets to accept user inpu
  * 
  *      while(1){
  *        printf("%s", SH_PROMPT);
