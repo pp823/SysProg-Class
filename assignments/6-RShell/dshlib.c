@@ -9,6 +9,26 @@
 
 #include "dshlib.h"
 
+
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <ctype.h>
+#include <stdbool.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/wait.h>
+
+#include "dshlib.h"
+
+/**** 
+ **** FOR REMOTE SHELL USE YOUR SOLUTION FROM SHELL PART 3 HERE
+ **** THE MAIN FUNCTION CALLS THIS ONE AS ITS ENTRY POINT TO
+ **** EXECUTE THE SHELL LOCALLY
+ ****
+ */
+
 /*
  * Implement your exec_local_cmd_loop function by building a loop that prompts the 
  * user for input.  Use the SH_PROMPT constant from dshlib.h and then
@@ -54,6 +74,7 @@
  */
 int exec_local_cmd_loop()
 {
+<<<<<<< HEAD:assignments/5-ShellP3/starter/dshlib.c
     char cmd_buff[SH_CMD_MAX];
     command_list_t cmd_list;
     
@@ -102,6 +123,11 @@ int exec_local_cmd_loop()
         free_cmd_list(&cmd_list);
     }
     
+=======
+
+    // THIS CODE SHOULD BE THE SAME AS PRIOR ASSIGNMENTS
+   
+>>>>>>> d1f782755a36b5161a2aa2280943868fb72d70ce:assignments/6-RShell/dshlib.c
     return OK;
 }
 
