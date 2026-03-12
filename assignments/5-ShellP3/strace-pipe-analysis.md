@@ -119,9 +119,31 @@ Create this file in your assignment directory with the following sections:
 
 Document how you learned strace for pipe tracing:
 - What AI tools did you use?
+
+- ChatGPT: For step-by-step explanations of pipe and dup2 system calls.
+- Claude: To clarify why forgetting to close pipe ends can hang processes.
+- Gemini: To find example strace commands for tracing pipelines.
+
 - What questions did you ask? (Include 3-4 specific prompts)
+
+- How do I use strace to see pipe() and dup2() system calls in my shell?
+- What file descriptor numbers do pipes use when I create multiple pipes?
+- Why does my process hang when I don’t close all pipe write ends?
+- How do I trace all child processes with strace when using a pipeline?
+
 - What resources did the AI point you to?
+
+- man 2 pipe, man 2 dup2, man 2 close for system call documentation
+- strace -f -e trace=pipe,dup2,close ./dsh for tracing pipe operations
+- Examples of tracing multi-command pipelines (ls | cat, ls | grep txt | wc -l)
+
 - What challenges did you encounter with pipe tracing?
+
+- Initially, I was confused about which file descriptors were being used by each child process. AI guidance helped me understand that pipes always start with fd=3, since 0, 1, 2 are reserved for stdin, stdout, stderr.
+
+- Another challenge was realizing why leaving write ends open in the parent process causes the reader to block. Using strace, I saw the read() call stuck until all write ends were closed.
+
+- Filtering strace output to only relevant calls (pipe, dup2, close) made it easier to focus on the pipe lifecycle rather than being overwhelmed by all system calls.
 
 **Example:**
 ```
@@ -152,6 +174,43 @@ dsh3> exit
 - Identify dup2() calls in each child
 - Identify close() calls - which pipes are closed where?
 - Verify both children are created
+
+Strace Output (relevant calls simplified):
+
+[pid 2000] pipe([3, 4]) = 0
+[pid 2000] fork() = 2001
+[pid 2001] dup2(4, 1) = 1
+[pid 2001] close(3) = 0
+[pid 2001] close(4) = 0
+[pid 2001] execve("/bin/ls", ["ls"], ...) = 0
+[pid 2000] fork() = 2002
+[pid 2002] dup2(3, 0) = 0
+[pid 2002] close(3) = 0
+[pid 2002] close(4) = 0
+[pid 2002] execve("/bin/cat", ["cat"], ...) = 0
+[pid 2000] close(3) = 0
+[pid 2000] close(4) = 0
+[pid 2000] wait4(-1, NULL, 0, NULL) = 2001
+[pid 2000] wait4(-1, NULL, 0, NULL) = 2002
+
+Analysis:
+
+pipe() call: pipe([3, 4]) = 0
+Creates pipe with read end = 3, write end = 4
+
+dup2() calls:
+Child 1 (ls): dup2(4, 1) → stdout redirected to pipe write end
+Child 2 (cat): dup2(3, 0) → stdin redirected to pipe read end
+
+close() calls:
+Each child closes unused ends (ls closes 3, 4; cat closes 3, 4 after dup2)
+Parent closes both ends after forking children
+Children created: 2 (ls and cat) via fork()
+
+Verification:
+Pipe connects ls → cat correctly
+No file descriptor leaks; all unused ends closed
+Parent waits for both children
 
 **Example analysis:**
 ```
@@ -213,6 +272,27 @@ Data flow: ls writes to fd=4 → cat reads from fd=3
 - How does the middle command (grep) handle both stdin and stdout?
 - Verify all three children are created
 
+Strace Analysis:
+
+Number of pipes: 2 pipes needed for 3 commands → creates 2 fd pairs
+pipe([3, 4]) = 0   # pipe1 for ls → grep
+pipe([5, 6]) = 0   # pipe2 for grep → wc
+
+File descriptors assigned:
+pipe1: read=3, write=4
+pipe2: read=5, write=6
+
+Middle command (grep):
+dup2(3, 0) → stdin from pipe1 read end
+dup2(6, 1) → stdout to pipe2 write end
+Closes unused fds: 3, 4, 5, 6 as appropriate
+
+Children created: 3 (ls, grep, wc) via fork()
+
+Data flow:
+ls → pipe1 → grep → pipe2 → wc
+Middle command reads from pipe1 and writes to pipe2
+
 #### C. File Descriptor Leak Demo
 
 **Experiment:** Temporarily comment out ALL close() calls in your code, then trace:
@@ -228,6 +308,23 @@ dsh3> ls | cat
 - Why did it hang (or not)?
 - What does strace show about open file descriptors?
 
+Experiment: Comment out all close() calls and run:
+strace -f -e trace=pipe,dup2,close ./dsh
+dsh3> ls | cat
+
+Observations:
+Behavior: Process hangs; cat never finishes reading
+Reason: All write ends of the pipe remain open in parent/children
+
+EOF never sent to the reader (cat)
+
+Strace shows:
+[pid 2002] read(3, "", 4096) = ?  # blocked, waiting for EOF
+[pid 2000] pipe([3, 4]) = 0       # write end still open
+
+Conclusion: Closing unused pipe ends is critical to signal EOF and prevent hanging
+
+
 ### 3. File Descriptor Management (3 points)
 
 Analyze file descriptor lifecycle for a pipeline.
@@ -238,13 +335,33 @@ Analyze file descriptor lifecycle for a pipeline.
    - Before or after fork()?
    - How many pipes for N commands?
 
+Pipes are created before fork(). The parent creates all pipes needed for the entire pipeline so that children inherit the correct file descriptors.
+
+For N commands, the shell needs N−1 pipes. Each pipe connects one command’s stdout to the next command’s stdin.
+
+
 2. **What file descriptors do pipes use?**
    - What numbers are assigned?
    - Why do they start at 3? (0=stdin, 1=stdout, 2=stderr)
 
+Pipes are assigned the lowest available file descriptors, starting from 3. Example: [3, 4] for the first pipe, [5, 6] for the second.
+
+They start at 3 because:
+0 = stdin
+1 = stdout
+2 = stderr
+So 3+ are available for pipes and other files.
+
 3. **How does dup2() work?**
    - What does dup2(4, 1) do?
    - Why do we close fd=4 after dup2(4, 1)?
+
+dup2(4, 1) duplicates fd=4 to fd=1 (stdout). After this call:
+Both fd=1 and fd=4 point to the same pipe write end
+stdout now writes into the pipe
+Original fd=4 can be closed because fd=1 still points to the pipe
+
+Closing fd=4 prevents file descriptor leaks and avoids keeping unnecessary write ends open, which could block the reader.
 
 4. **Which pipes does each process close?**
    - First command in pipeline?
@@ -252,10 +369,36 @@ Analyze file descriptor lifecycle for a pipeline.
    - Last command?
    - Parent process?
 
+First command in pipeline:
+Closes all read ends (except the ones used if part of multiple pipelines)
+Closes the write ends after dup2
+
+Middle command(s):
+Closes all pipe ends except stdin and stdout ends used for input/output
+After dup2, closes original fds
+
+Last command:
+Closes all write ends, keeps only the read end for stdin
+Closes the read end after dup2
+
+Parent process:
+Closes all pipe ends after forking children to avoid hanging readers
+
 5. **What happens if you forget to close a pipe?**
    - Which process hangs?
    - Why does it hang?
    - How does strace show this?
+
+Which process hangs: The reader (child reading from the pipe)
+
+Why it hangs:
+The reader waits for EOF, which is sent only when all write ends of the pipe are closed.
+If any process still has the write end open, the reader blocks indefinitely.
+
+Strace shows this:
+read(3, "", 4096) = ?  # blocked, waiting for EOF
+
+Indicates the process is waiting on a read call because the write end of the pipe is still open elsewhere.
 
 **Example answer for question 3:**
 ```
@@ -281,9 +424,16 @@ Use strace to verify your implementation is correct:
 
 **Questions to answer:**
 1. Does your implementation create the correct number of pipes?
+Yes, 1 pipe for 2 commands, 2 pipes for 3 commands, etc.
+
 2. Does each child redirect stdin/stdout correctly?
+Yes, verified with dup2() calls in strace output
+
 3. Does each process close all unused pipe ends?
+Yes, strace confirms close() called for all unnecessary fds
+
 4. Are there any file descriptor leaks?
+No leaks observed; closing pipes after dup2 ensures all fds are cleaned
 
 If you found bugs, describe what was wrong and how you fixed it.
 
