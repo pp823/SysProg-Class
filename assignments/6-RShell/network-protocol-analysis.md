@@ -118,9 +118,19 @@ Create this file in your assignment directory with the following sections:
 
 Document how you learned network protocol analysis:
 - What AI tools did you use?
+I used ChatGPT to learn about network protocol analysis and how to inspect TCP communication between my client and server programs
+
 - What questions did you ask? (Include 3-4 specific prompts)
+How do I use tcpdump to capture TCP traffic on port 1234?
+What is the TCP three-way handshake and how can I see it in packet captures?
+How can I verify that my EOF marker (0x04) is being sent over the network?
+How do send() and recv() system calls appear when using strace?
+
 - What resources did the AI point you to?
+The AI suggested using tools like tcpdump, Wireshark, and strace to analyze network traffic and system calls. It also recommended reading Linux manual pages such as man tcpdump, man 7 tcp, and man 2 socket to understand how TCP and socket programming work.
+
 - What challenges did you encounter?
+One challenge I encountered was understanding that TCP is a stream protocol, which means it does not preserve message boundaries. This means multiple send() calls can appear in a single recv(), or one send() can be split across multiple recv() calls. It took some time to understand how the EOF marker (0x04) helps determine when a message from the server has finished.
 
 **Example:**
 ```
@@ -147,14 +157,37 @@ Document YOUR protocol (the one you implemented):
 - Encoding: (ASCII? Binary?)
 - Example: `"ls -la\0"`
 
+Client → Server
+Message format: Null-terminated string
+Encoding: ASCII text
+Example: "ls -la\0"
+
+The client reads a command from the user and sends it to the server as a null-terminated string. The \0 character marks the end of the command so the server knows where the command ends.
+
+
 **Server → Client:**
 - Message format: (how do you mark message end?)
 - EOF marker: (0x04 character)
 - Example: `"file1.txt\nfile2.txt\n\x04"`
 
+Server → Client
+Message format: Variable-length ASCII output followed by an EOF marker
+EOF marker: 0x04 character
+Example: "file1.txt\nfile2.txt\n\x04"
+
+The server sends the command output back to the client. After sending all output data, it sends the EOF marker (0x04) to indicate that the response is finished.
+
+
 **Explain why you use EOF marker:**
 - Why is it needed with TCP?
 - What would happen without it?
+
+TCP is a stream protocol, which means it sends data as a continuous stream of bytes and does not preserve message boundaries. Because of this, the client cannot know when the server has finished sending the response.
+
+The EOF marker (0x04) tells the client that the message is complete. The client continues reading from the socket until it receives this marker.
+
+Without the EOF marker, the client would not know when to stop calling recv(), and it could keep waiting for more data even though the server already finished sending the response.
+
 
 #### B. Message Boundary Problem
 
@@ -164,12 +197,44 @@ Explain the TCP message boundary issue:
 - One send() can be split across multiple recv()
 - Your EOF marker solves this - how?
 
+TCP does not preserve the boundaries of messages sent by applications. Instead, it treats all transmitted data as a continuous stream.
+
+This creates two possible situations:
+
+Multiple send() calls from the server may be combined into a single recv() call on the client.
+
+A single send() call may be split across multiple recv() calls.
+
+Because of this behavior, the client cannot rely on the number of recv() calls to determine when the message ends.
+
+The EOF marker (0x04) solves this problem by acting as a delimiter. The client keeps reading data from the socket until it detects the 0x04 byte. Once this marker is found, the client knows that the full response has been received.
+
+
 #### C. Protocol Limitations
 
 Identify potential issues with your protocol:
 - What if command output contains 0x04?
 - What if network connection breaks mid-message?
 - How would you improve it for production use?
+
+There are several limitations in this protocol:
+1. Output containing 0x04
+If the command output itself contains the byte 0x04, the client may mistakenly interpret it as the end of the message, which could result in incomplete output being displayed.
+
+2. Network interruption
+If the network connection breaks while the server is sending data, the client may receive only part of the message and may never receive the EOF marker.
+
+3. No message length information
+The protocol does not include the length of the message. The client must continue reading data until it finds the EOF marker.
+
+Possible Improvements
+For a production system, the protocol could be improved by:
+Sending a length prefix before the message so the client knows exactly how many bytes to read.
+Escaping or encoding special characters like 0x04.
+Adding better error handling for connection failures.
+Including checksums or validation to detect corrupted data.
+
+
 
 ### 3. Traffic Capture and Analysis (3 points)
 
@@ -231,10 +296,55 @@ strace -e trace=socket,bind,listen,accept,send,recv -o server_trace.txt ./dsh -s
 
 **Provide:**
 - Relevant strace output from both sides
+
+socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) = 3
+connect(3, {sa_family=AF_INET, sin_port=htons(1234), sin_addr=127.0.0.1}, 16) = 0
+send(3, "echo hello\0", 11, 0) = 11
+recv(3, "hello\n\4", 1024, 0) = 7
+
+socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) = 3
+bind(3, {AF_INET, port=1234}, 16) = 0
+listen(3, 20) = 0
+accept(3, ...) = 4
+recv(4, "echo hello\0", 1024, 0) = 11
+send(4, "hello\n", 6, 0) = 6
+send(4, "\4", 1, 0) = 1
+
 - Identify socket(), connect(), accept() calls
+
+socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) creates the TCP socket.
+connect() is used by the client to connect to the server on port 1234.
+accept() is used by the server to accept the client connection.
+
+Example:
+
+socket(AF_INET, SOCK_STREAM, IPPROTO_TCP) = 3
+connect(3, {AF_INET, port=1234, addr=127.0.0.1}, 16) = 0
+accept(3, ...) = 4
+
 - Show send() calls with command data
+
+Client sending the command:
+send(3, "echo hello\0", 11, 0) = 11
+This sends the command echo hello with a null terminator (\0).
+
 - Show recv() calls with response data
+
+Server receiving the command:
+recv(4, "echo hello\0", 1024, 0) = 11
+Client receiving the response:
+recv(3, "hello\n\4", 1024, 0) = 7
+
 - Verify EOF character is sent
+
+The server sends the EOF marker using:
+send(4, "\4", 1, 0) = 1
+The \4 represents the EOF character (0x04).
+The client receives it as part of the response:
+recv(3, "hello\n\4", 1024, 0)
+This confirms the EOF marker was transmitted.
+
+
 
 #### What to Analyze:
 
@@ -244,19 +354,52 @@ strace -e trace=socket,bind,listen,accept,send,recv -o server_trace.txt ./dsh -s
    - Identify send() call or TCP packet
    - Show hex dump of "echo hello\0"
 
+send() call:
+send(3, "echo hello\0", 11, 0) = 11
+
+Hex dump of the command:
+65 63 68 6f 20 68 65 6c 6c 6f 00
+
+This corresponds to:
+echo hello\0
+
+
 2. **Server receives:**
    - Identify recv() call or TCP packet
    - Verify it received "echo hello\0"
+
+recv() call:
+recv(4, "echo hello\0", 1024, 0) = 11
+
+This confirms the server correctly received the full command including the null terminator.
+
 
 3. **Server sends response:**
    - Multiple send() calls or packets
    - Response data: "hello\n"
    - EOF marker: 0x04
 
+The server sends the output in two parts:
+send(4, "hello\n", 6, 0) = 6
+send(4, "\4", 1, 0) = 1
+
+Response data: "hello\n"
+EOF marker: 0x04
+
+
 4. **Client receives:**
    - May take multiple recv() calls
    - Verify received all data
    - Verify EOF marker terminates receive loop
+
+The client receives the response using:
+recv(3, "hello\n\4", 1024, 0) = 7
+
+The client reads the output "hello\n" and then detects the EOF marker \4.
+When the EOF marker is detected, the client stops the receive loop, which indicates the server response is complete.
+
+
+
 
 ### 4. TCP Connection Verification (2 points)
 
@@ -271,9 +414,39 @@ Verify the TCP connection works correctly:
 
 **Questions to answer:**
 1. How many TCP packets for connection establishment?
+
+Three packets are used for connection establishment. This process is called the TCP three-way handshake:
+SYN – The client sends a SYN packet to the server to request a connection.
+SYN-ACK – The server responds with a SYN-ACK packet acknowledging the request.
+ACK – The client sends an ACK packet to confirm the connection.
+
+After these three packets are exchanged, the TCP connection is successfully established.
+
 2. How does TCP handle your send() calls? (One packet per send? Combined?)
+
+TCP does not guarantee one packet per send() call. Because TCP is a stream protocol, the operating system may:
+Combine multiple send() calls into a single packet, or
+Split one send() call across multiple packets.
+
+This means the application cannot rely on packet boundaries and must handle data as a continuous stream.
+
 3. Can you see the EOF character in packet/syscall dumps?
+
+Yes. The EOF character can be seen in the strace output when the server sends it.
+Example:
+send(4, "\4", 1, 0) = 1
+
+The \4 represents the EOF marker (0x04). This confirms that the server sends the EOF character after sending the command output.
+
 4. What happens on "exit" command? (Connection teardown)
+
+When the user enters the exit command:
+The client stops sending commands.
+The client closes the socket connection.
+TCP performs a graceful connection teardown using FIN packets.
+The server detects that the connection is closed and terminates the session.
+
+This ensures that both the client and server properly release their network resources.
 
 If you found issues, describe what was wrong and how you fixed it.
 
