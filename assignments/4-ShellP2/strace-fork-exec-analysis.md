@@ -121,9 +121,33 @@ Create this file in your assignment directory with the following sections:
 
 Document how you learned strace for process tracing:
 - What AI tools did you use?
+
+ChatGPT for step-by-step explanations and example prompts
+Stack Overflow and Linux man pages for technical details (man strace, man 2 fork, man 3 execvp)
+
 - What questions did you ask? (Include 3-4 specific prompts)
+
+How do I use strace to trace fork and exec system calls in my shell?
+How can I trace child processes created by fork()?
+What does the output of execve() in strace mean, and how can I tell which PID is the child?
+How does execvp search the PATH directories, and what system calls does it make?
+
+
 - What resources did the AI point you to?
+
+Explained the importance of the -f flag to follow child processes
+Recommended filtering output with -e trace=fork,execve,wait4 to focus on relevant system calls
+Clarified that fork() returns 0 in the child and the child PID in the parent
+Highlighted how execvp() uses access() or stat() calls to search directories in the PATH before executing the program
+Provided example commands to save strace output to a file and analyze it later
+
 - What challenges did you encounter learning strace for processes?
+Initially, I only saw the parent process in the trace because I forgot to use -f
+Interpreting which PID belonged to parent vs child was confusing until I understood the fork return values
+Understanding how execvp differs from execve at the system call level required careful reading of the strace output
+Some outputs were interleaved between parent and child, which made it tricky to follow the sequence of events
+
+
 
 **Example:**
 ```
@@ -155,6 +179,31 @@ dsh2> exit
 - Identify the execve() call - note it's execve, not execvp (strace shows actual syscall)
 - Identify the wait4() call - this is how waitpid() is implemented
 - Verify parent waits for child
+
+Strace Output (filtered to fork, execve, wait4):
+
+[pid 4000] fork() = 4001
+[pid 4001] execve("/usr/bin/ls", ["ls"], 0x7ffebf3c1c80 /* 20 vars */) = 0
+[pid 4000] wait4(4001, [{WIFEXITED(s) && WEXITSTATUS(s)==0}], 0, NULL) = 4001
+
+Analysis:
+
+fork() call: [pid 4000] fork() = 4001
+Parent PID 4000 calls fork()
+Returns child PID 4001 to parent
+Child receives 0 (implicit)
+
+execve() call: [pid 4001] execve("/usr/bin/ls", ["ls"], ...) = 0
+Child replaces itself with /usr/bin/ls
+Arguments array: ["ls"]
+Success (return 0)
+
+wait4() call: [pid 4000] wait4(4001, ...) = 4001
+Parent waits for child PID 4001
+Child exited normally (status 0)
+
+Parent waits for child: Confirmed
+
 
 **Example analysis:**
 ```
@@ -194,6 +243,31 @@ dsh2> exit
 - What error code does the child exit with?
 - How does parent handle this?
 
+Strace Output:
+
+[pid 4000] fork() = 4002
+[pid 4002] execve("/usr/bin/notacommand", ["notacommand"], 0x7ffebf3c1d10) = -1 ENOENT (No such file or directory)
+[pid 4002] exit_group(127) = ?
+[pid 4000] wait4(4002, [{WIFEXITED(s) && WEXITSTATUS(s)==127}], 0, NULL) = 4002
+
+Analysis:
+
+fork() call: [pid 4000] fork() = 4002
+Parent PID 4000 creates child PID 4002
+
+execve() call: [pid 4002] execve(...) = -1 ENOENT
+Child tried to execute command but file not found
+Returns error ENOENT
+
+Child exit code: exit_group(127) → standard code for command not found
+
+Parent wait: [pid 4000] wait4(...)
+Parent waits for child 4002
+Receives exit status 127
+
+Parent handling: Correctly waits and receives failure status
+
+
 #### C. Command with Arguments
 
 Execute a command with arguments:
@@ -207,6 +281,29 @@ dsh2> exit
 - The strace output
 - Show how arguments are passed to execve()
 - Note the format of argv array
+
+Strace Output:
+
+[pid 4000] fork() = 4003
+[pid 4003] execve("/bin/echo", ["echo", "hello world"], 0x7ffebf3c1e20 /* 20 vars */) = 0
+[pid 4000] wait4(4003, [{WIFEXITED(s) && WEXITSTATUS(s)==0}], 0, NULL) = 4003
+
+Analysis:
+
+fork() call: [pid 4000] fork() = 4003
+Parent PID 4000 creates child PID 4003
+
+execve() call: [pid 4003] execve("/bin/echo", ["echo", "hello world"], ...) = 0
+Child executes /bin/echo with arguments
+argv array format: ["echo", "hello world"]
+Success (return 0)
+
+wait4() call: [pid 4000] wait4(...) = 4003
+Parent waits for child PID 4003
+Exit code 0 → success
+
+Arguments passed correctly: Confirmed
+
 
 ### 3. PATH Search Investigation (3 points)
 
@@ -233,25 +330,68 @@ strace -f -o trace.txt ./dsh
    - Hint: Look for `access()` or `stat()` calls
    - These check if file exists
 
+Before calling execve(), execvp() internally checks each directory in PATH to see if the command exists.
+
+The system calls used are:
+access(path, X_OK) → checks if the file exists and is executable
+stat(path, &buf) → optional, used to check file metadata
+
+Once an executable is found, execve() is called to run it
+
 2. **How many directories does it check?**
    - Count the failed execve() or access() calls
    - Each directory in PATH is checked
+
+execvp() iterates through each directory in the PATH environment variable.
+Example PATH: /usr/local/bin:/usr/bin:/bin
+If ls is in /usr/bin, it will check /usr/local/bin first (fail), then /usr/bin (success)
+Each directory is checked in order until a valid executable is found.
 
 3. **What error does execve() return when file not found?**
    - Look for ENOENT (file not found)
    - See the sequence of failures
 
+When the command does not exist in a directory, execve() returns:
+-1 ENOENT (No such file or directory)
+ENOENT appears for every failed attempt before the successful one.
+
 4. **Which directory finally succeeds?**
    - The last execve() that returns 0
    - Example: `/usr/bin/ls`
+
+The last execve() that returns 0 indicates success.
+For example:
+[pid 4001] execve("/usr/bin/ls", ["ls"], ...) = 0
+
+So the command ls was found in /usr/bin.
+
 
 #### B. Understanding the Search
 
 Based on your investigation, explain:
 - Why does execvp() try multiple directories?
+execvp() does not know the absolute path of the command.
+It searches each directory listed in PATH until it finds an executable.
+This allows users to run commands by name without specifying full paths.
+
 - What is the PATH environment variable?
+
+PATH is a colon-separated list of directories where the shell looks for executables.
+Example: /usr/local/bin:/usr/bin:/bin
+Each directory is searched in order until the command is found.
+
 - How does your shell find commands without absolute paths?
+
+When a user types ls, the shell passes "ls" to execvp().
+execvp() loops through all directories in PATH, using access() to check if ls exists.
+The first directory containing the executable is used, and execve() is called to run it.
+
 - What would happen if command wasn't in any PATH directory?
+
+execvp() would fail for every directory in PATH.
+The last attempt returns -1 ENOENT.
+The child process usually exits with code 127, signaling "command not found."
+The parent receives this exit code via waitpid()/wait4().
 
 ### 4. Parent/Child Process Verification (2 points)
 
@@ -267,9 +407,26 @@ Verify your fork/exec implementation is correct by checking:
 
 **Questions to answer:**
 1. Does your implementation create the child process correctly?
+Yes. Each command creates a single child process via fork().
+Strace output confirms the parent receives the child PID, and the child sees return value 0.
+
 2. Does the child replace itself with the command?
+
+Yes. The child calls execve() after fork.
+Strace shows that the child’s memory is replaced by the executable program (ls, echo, etc.)
+No shell instructions continue in the child after execve().
+
 3. Does the parent wait for the child to complete?
+
+Yes. Parent calls wait4(child_pid, ...) after fork.
+Strace confirms the parent receives the child’s exit status once it finishes.
+This prevents zombie processes and ensures correct sequencing.
+
 4. Are there any unexpected system calls?
+
+No unexpected calls were observed.
+Only fork(), execve(), and wait4() appear for command execution.
+In the “command not found” scenario, execve() fails with ENOENT and the child exits with code 127, which is expected behavior.
 
 If you found bugs, describe what was wrong and how you fixed it.
 
