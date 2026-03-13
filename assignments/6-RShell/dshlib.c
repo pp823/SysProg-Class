@@ -74,7 +74,6 @@
  */
 int exec_local_cmd_loop()
 {
-<<<<<<< HEAD:assignments/5-ShellP3/starter/dshlib.c
     char cmd_buff[SH_CMD_MAX];
     command_list_t cmd_list;
     
@@ -123,11 +122,6 @@ int exec_local_cmd_loop()
         free_cmd_list(&cmd_list);
     }
     
-=======
-
-    // THIS CODE SHOULD BE THE SAME AS PRIOR ASSIGNMENTS
-   
->>>>>>> d1f782755a36b5161a2aa2280943868fb72d70ce:assignments/6-RShell/dshlib.c
     return OK;
 }
 
