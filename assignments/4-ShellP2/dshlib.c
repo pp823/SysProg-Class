@@ -517,8 +517,8 @@ int execute_pipeline(command_list_t *clist)
     }
     
     int num_cmds = clist->num;
-    int pipes[num_cmds - 1][2];
-    pid_t pids[num_cmds];
+    int pipes[CMD_MAX - 1][2];
+    pid_t pids[CMD_MAX];
     
     // Create pipes
     for (int i = 0; i < num_cmds - 1; i++) {
@@ -678,12 +678,14 @@ int execute_pipeline(command_list_t *clist)
 int exec_local_cmd_loop()
 {
     char cmd_line[SH_CMD_MAX];
-    cmd_buff_t cmd;
+    command_list_t cmd_list;
     int rc;
     
-    // Allocate cmd_buff
-    if (alloc_cmd_buff(&cmd) != OK) {
-        return ERR_MEMORY;
+    // Allocate command list
+    for (int i = 0; i < CMD_MAX; i++) {
+        if (alloc_cmd_buff(&cmd_list.commands[i]) != OK) {
+            return ERR_MEMORY;
+        }
     }
     
     while (1) {
@@ -705,14 +707,18 @@ int exec_local_cmd_loop()
             break;
         }
         
-        // Parse command line
-        rc = build_cmd_buff(cmd_line, &cmd);
-        if (rc != OK || cmd.argc == 0) {
-            continue; // Empty or parse error
+        // Parse command line (handles both single commands and pipelines)
+        rc = build_cmd_list(cmd_line, &cmd_list);
+        if (rc == WARN_NO_CMDS) {
+            continue; // Empty command
+        }
+        if (rc != OK) {
+            printf("error: %d\n", rc);
+            continue;
         }
         
-        // Check if built-in command
-        Built_In_Cmds bi = exec_built_in_cmd(&cmd);
+        // Check if first command is built-in
+        Built_In_Cmds bi = exec_built_in_cmd(&cmd_list.commands[0]);
         if (bi == BI_CMD_EXIT) {
             printf("exiting...\n");
             break;
@@ -721,10 +727,20 @@ int exec_local_cmd_loop()
             continue; // Built-in was executed
         }
         
-        // Not built-in, execute with fork/exec
-        rc = exec_cmd(&cmd);
+        // Execute command(s)
+        if (cmd_list.num == 1) {
+            // Single command
+            rc = exec_cmd(&cmd_list.commands[0]);
+        } else {
+            // Pipeline
+            rc = execute_pipeline(&cmd_list);
+        }
     }
     
-    free_cmd_buff(&cmd);
+    // Free command list
+    for (int i = 0; i < CMD_MAX; i++) {
+        free_cmd_buff(&cmd_list.commands[i]);
+    }
+    
     return OK;
 }
