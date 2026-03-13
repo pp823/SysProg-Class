@@ -14,7 +14,7 @@ if ! command -v debootstrap &> /dev/null; then
   exit 1
 fi
 
-sudo debootstrap --no-check-gpg --arch=arm64 --variant=minbase jammy "$ROOTFS_DIR" http://ports.ubuntu.com/ubuntu-ports
+sudo debootstrap --no-check-gpg --variant=minbase jammy "$ROOTFS_DIR" http://archive.ubuntu.com/ubuntu/
 
 # 3. Mount special filesystems
 sudo mount --bind /dev "$ROOTFS_DIR/dev"
