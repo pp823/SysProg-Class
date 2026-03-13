@@ -225,6 +225,7 @@ typedef enum {
     BI_CMD_EXIT,    // exit command
     BI_CMD_DRAGON,  // dragon command (extra credit from Part 1)
     BI_CMD_CD,      // cd command (Part 2)
+    BI_CMD_PWD,     // pwd command (Part 3)
     BI_NOT_BI,      // Not a built-in command
     BI_EXECUTED,    // Built-in command was executed
 } Built_In_Cmds;
