@@ -23,15 +23,30 @@ void setup_hostname() {
 
 // --- TODO: Mount procfs inside the container's root filesystem ---
 void setup_mounts() {
-    // TODO: Mount /proc inside the chroot environment
-    // Hint: use `mount("proc", "/proc", "proc", 0, "")`
+    // Mount proc filesystem inside the container
+    if (mount("proc", "/proc", "proc", 0, "") != 0) {
+        perror("mount proc failed");
+        exit(1);
+    }
+    
+    printf("Proc filesystem mounted at /proc\n");
 }
 
 // --- TODO: Use chroot() to change root filesystem to container_rootfs ---
 void setup_rootfs() {
-    // TODO: Change to the new root and chroot
-    // Hint: use chdir(container_rootfs) and chroot(".")
-    // Tip: ensure this directory exists and has /usr/sbin/nginx in it
+    // Change to the new root directory
+    if (chdir(container_rootfs) != 0) {
+        perror("chdir failed");
+        exit(1);
+    }
+    
+    // Change root filesystem
+    if (chroot(".") != 0) {
+        perror("chroot failed");
+        exit(1);
+    }
+    
+    printf("Root filesystem changed to %s\n", container_rootfs);
 }
 
 // --- Provided: This is the child process entrypoint ---
